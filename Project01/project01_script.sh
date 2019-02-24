@@ -6,8 +6,8 @@ commands () {
       echo $userWord
   elif [ "$1" = 2 ]
   then
-    find ~/CS1XA3 -type f -name '*' -exec cat {} + > TODO.log
-    sed -i s/$/'#TODO'/ TODO.log
+    #find ~/CS1XA3 -type f -name '*' -exec grep -L "#todo" {} + > TODO.log
+    grep -r -h -s '#TODO' ~/CS1XA3 > TODO.log
 
   fi
 }
