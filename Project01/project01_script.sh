@@ -25,7 +25,6 @@ commands () {
     touch HTML/$fileName.html
     wget -O - $URL > ./HTML/$fileName.html
 
-
   fi
 
 }
