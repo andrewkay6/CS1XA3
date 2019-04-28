@@ -8,12 +8,25 @@ import Html exposing (..)
 import Http
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
+import Json.Decode as JDecode
+import Json.Encode as JEncode
+
+--rootUrl ="http://localhost:8000/e/kaya6/"
+
+
+
+rootUrl = "https://mac1xa3.ca/e/kaya6/"
 
 type Msg = Tick Float GetKeyState
          | MakeRequest Browser.UrlRequest
          | UrlChange Url.Url
          | UsernameUpdate String
          | PasswordUpdate String
+         | SigninButtonPressed
+         | GotLoginResponse (Result Http.Error String)
+         | SignupPageSwtich
+         | SignupButtonPressed
+         | GotSignupResponse (Result Http.Error String)
 
 type alias Model = { score: Int
                    , player:Player
@@ -24,7 +37,8 @@ type alias Model = { score: Int
                    , status: GameStatus
                    , winMessage: String
                    ,username : String
-                   ,password : String }
+                   ,password : String
+                   ,error : String}
 
 type alias Direction = (Int, Int)
 type alias Player = (Int, Int)
@@ -54,6 +68,7 @@ init flags url key =
       , winMessage = ""
       , username = ""
       , password = ""
+      , error = ""
       }
   in ( model,  Cmd.none ) -- add init model
 
@@ -61,15 +76,39 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model = case msg of
                      Tick time (keystate, (x,y) , _) ->
                        if (hitEnemies model.player model.enemies)
-                         then ({model | player = (updatePlayer model.player (round x,round y)), enemies = []},Cmd.none)
+                         then ({model | player = (100000000000,100000000000)},Cmd.none)
+                         else if (getApple model.player model.apple)
+                           then ({model | player = (updatePlayer model.player (round x,round y)), enemies = (updateEnemies model.enemies), score = model.score+1, apple = (1000,1000)},Cmd.none)
                          else ({model | player = (updatePlayer model.player (round x,round y)), enemies = (updateEnemies model.enemies)},Cmd.none)
-
 
 
                      MakeRequest req    -> (model,Cmd.none)
                      UrlChange url      -> (model,Cmd.none)
                      UsernameUpdate newname -> ({model | username = newname} ,Cmd.none)
                      PasswordUpdate newpass -> ({model | password = newpass} ,Cmd.none)
+                     SigninButtonPressed -> (model , signinPost model )
+                     GotLoginResponse result ->
+                          case result of
+                              Ok "LoginFailed" ->
+                                  ( { model | error = "failed to login" }, Cmd.none )
+
+                              Ok _ ->
+                                  ( {model | state = Game}, Cmd.none )
+
+                              Err error ->
+                                  ( handleError model error, Cmd.none )
+                     SignupPageSwtich ->  ({model | state = SignUp}, Cmd.none )
+                     SignupButtonPressed -> (model , signupPost model )
+                     GotSignupResponse result ->
+                          case result of
+                              Ok "LoggedIn" ->
+                                  ( { model | error = "Signup Success" }, Cmd.none )
+
+                              Ok _ ->
+                                  ( {model | error = "Signup Failure"}, Cmd.none )
+
+                              Err error ->
+                                  ( handleError model error, Cmd.none )
 
 view : Model -> { title : String, body : Collage Msg }
 view model = let
@@ -78,29 +117,33 @@ view model = let
                 elements = case model.state of
                                 Game -> gameElements
                                 Login -> signinElements
-                                SignUp -> signinElements
+                                SignUp -> signupElements
 
-                gameElements = [startElements ] ++ appleElement ++ playerElement ++ enemiesElement ++ [playerPos] ++ [enemiesPos]
+                gameElements = [startElements ] ++ appleElement ++ playerElement ++ enemiesElement ++ [scoreText]
                 startElements = group [background]
                 appleElement = [drawApple model.apple]
                 playerElement = [drawPlayer model.player]
                 enemiesElement = drawEnemies model.enemies
+                scoreText = GraphicSVG.text ( "Score: " ++ (String.fromInt model.score))
+                            |> filled black
+                            |> move (-20, 105)
                 background = rectangle 200 200
                               |> filled black
-                playerPos = GraphicSVG.text ( playerToString model.player )
-                            |> filled white
-                            |> move (0,50)
-                enemiesPos = GraphicSVG.text (enemiesToString model.enemies)
-                            |> filled white
-                            |> move (0,-50)
 
-                signinElements = [signinBackground, signinText] ++ usernameInput ++ passwordInput ++ signinButton
+
+                signinElements = [signinBackground, signinText, errorText] ++ usernameInput ++ passwordInput ++ signinButton ++ goTosignup
                 signinBackground = rectangle 200 200
                             |> filled grey
-                signinText = GraphicSVG.text "Login" |> filled black |> move (0,50)
-                usernameInput = [html 200 200 (div [] [input [placeholder "Username", onInput UsernameUpdate, value model.username] []])|> move (-100,0)]
-                passwordInput = [html 200 200 (div [] [input [type_ "password" ,placeholder "Password", onInput PasswordUpdate, value model.password] []]) |> move (-100,-30)]
-                signinButton = [html 200 200 ( div [] [button [] [Html.text "Sign In"]])|> move (-100,-70)]
+                signinText = GraphicSVG.text "Login" |> filled black |> move (-15,50)
+                errorText = GraphicSVG.text model.error |> filled black |> move (-15,70)
+                usernameInput = [html 200 200 (div [] [input [placeholder "Username", onInput UsernameUpdate, value model.username] []])|> move (-85,30)]
+                passwordInput = [html 200 200 (div [] [input [type_ "password" ,placeholder "Password", onInput PasswordUpdate, value model.password] []]) |> move (-85,0)]
+                signinButton = [html 200 200 ( div [] [button [Html.Events.onClick SigninButtonPressed] [Html.text "Sign In"]])|> move (-85,-40)]
+                goTosignup = [html 200 200 ( div [] [button [Html.Events.onClick SignupPageSwtich] [Html.text "Go To Signup"]])|> move (-85,-70)]
+
+                signupElements = [signinBackground, signupText] ++ usernameInput ++ passwordInput ++ signupButton
+                signupText = GraphicSVG.text "Register" |> filled black |> move (-15,50)
+                signupButton = [html 200 200 ( div [] [button [Html.Events.onClick SignupButtonPressed] [Html.text "Sign Up"]])|> move (-85,-40)]
              in { title = title , body = body }
 
 subscriptions : Model -> Sub Msg
@@ -166,3 +209,49 @@ enemiesToString : Enemies -> String
 enemiesToString l  = case l of
                      ((a,b,c)::xs)-> String.fromInt(a) ++ ", " ++ String.fromInt(b) ++ "; " ++ (enemiesToString xs)
                      [] -> ""
+
+--Django
+passwordEncoder : Model -> JEncode.Value
+passwordEncoder model =
+    JEncode.object
+        [ ( "username"
+          , JEncode.string model.username
+          )
+        , ( "password"
+          , JEncode.string model.password
+          )
+        ]
+
+signinPost : Model -> Cmd Msg
+signinPost model =
+    Http.post
+        { url = rootUrl ++ "loginapp/loginuser/"
+        , body = Http.jsonBody <| passwordEncoder model
+        , expect = Http.expectString GotLoginResponse
+        }
+
+signupPost : Model -> Cmd Msg
+signupPost model =
+    Http.post
+        { url = rootUrl ++ "loginapp/adduser/"
+        , body = Http.jsonBody <| passwordEncoder model
+        , expect = Http.expectString GotSignupResponse
+        }
+
+handleError : Model -> Http.Error -> Model
+handleError model error =
+    case error of
+        Http.BadUrl url ->
+            { model | error = "bad url: " ++ url }
+
+        Http.Timeout ->
+            { model | error = "timeout" }
+
+        Http.NetworkError ->
+            { model | error = "network error" }
+
+        Http.BadStatus i ->
+            { model | error = "bad status " ++ String.fromInt i }
+
+        Http.BadBody body ->
+            { model | error = "bad body " ++ body }
